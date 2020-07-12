@@ -8,6 +8,7 @@ For more information about any command, run:
   mmr help <command>
 
 Available commands:
+  checkout - Checks out a remote git repository.
   help - Get help on commands and syntax
   info - Show information about the current repo
   init - Initialize a new repo
