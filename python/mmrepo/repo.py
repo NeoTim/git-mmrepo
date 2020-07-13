@@ -47,6 +47,19 @@ class Repo:
   def git(self) -> GitExecutor:
     return self._git
 
+  def tree_from_cwd(self, cwd=None):
+    """Gets the tree from a current working directory."""
+    if cwd is None: cwd = os.getcwd()
+    toplevel = self.git.find_git_toplevel(cwd)
+    annotation = GitConfigAnnotation.from_git_root(toplevel)
+    existing_dict = self._config.trees.get_tree_by_id(annotation.tree_id)
+    if existing_dict is None:
+      raise UserError(
+          "The directory does not seem to be an MMR managed git tree: {}", cwd)
+    tree = BaseTreeRef.from_dict(self, d=existing_dict)
+    print("Found tree for cwd:", tree)
+    return tree
+
   def get_tree(self,
                remote_url: str,
                working_tree=DEFAULT_WORKING_TREE,
