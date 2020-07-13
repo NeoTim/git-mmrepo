@@ -4,6 +4,8 @@ from typing import Optional
 import os
 import urllib.parse
 
+from mmrepo.common import *
+from mmrepo.config import *
 from mmrepo.git import GitExecutor
 
 MMREPO_DIR = ".mmrepo"
@@ -13,7 +15,6 @@ DEFAULT_WORKING_TREE = "defaultwt"
 __all__ = [
     "GitTreeRef",
     "Repo",
-    "UserError",
 ]
 
 
@@ -24,6 +25,11 @@ class Repo:
     super().__init__()
     self._path = os.path.realpath(path)
     self._git = GitExecutor()
+    self._config = RepoConfig(self.mmrepo_dir)
+
+  @property
+  def config(self) -> RepoConfig:
+    return self._config
 
   @property
   def path(self) -> str:
@@ -47,8 +53,16 @@ class Repo:
                remote_type="git") -> "GitTreeRef":
     assert remote_type == "git"
     assert working_tree == "defaultwt"
-    tree = GitTreeRef(self, url_spec=remote_url, working_tree=working_tree)
-    return tree
+    prototype = GitTreeRef(self, url_spec=remote_url, working_tree=working_tree)
+    prototype.validate()
+    tree_id = prototype.tree_id
+    existing_dict = self._config.trees.get_tree_by_id(tree_id)
+    if existing_dict is None:
+      print("Added new tree {}".format(tree_id))
+      prototype.save()
+      return prototype
+    else:
+      return BaseTreeRef.from_dict(self, d=existing_dict)
 
   @staticmethod
   def find_from_cwd(from_cwd: Optional[str] = None):
@@ -84,17 +98,35 @@ class Repo:
     return Repo(from_cwd)
 
 
-class GitTreeRef:
-  """A reference to a git tree mapped into an mmr."""
+class BaseTreeRef:
+  CONFIG_TYPE = None
 
-  def __init__(self, repo: Repo, url_spec: str, working_tree: str):
+  def __init__(self, repo: Repo):
     super().__init__()
     self._repo = repo
-    self._url_spec = url_spec
-    self._working_tree = working_tree
-    self._url = urllib.parse.urlsplit(url_spec)
-    self._deps = None
-    self._submodule_deps_provider = None
+
+  def save(self):
+    """Saves this tree to the config."""
+    d = self.as_dict()
+    d["t"] = self.CONFIG_TYPE
+    self._repo.config.trees.tree_dicts[self.tree_id] = d
+    self._repo.config.trees.save()
+
+  @property
+  def repo(self) -> Repo:
+    return self._repo
+
+  @staticmethod
+  def from_dict(repo: Repo, d: dict):
+    t = d["t"] if "t" in d else None
+    if t == GitTreeRef.CONFIG_TYPE:
+      return GitTreeRef.from_dict(repo, d)
+    else:
+      raise UserError("Error loading tree from config: unknown type {}", t)
+
+  def as_dict(self) -> dict:
+    """Encodes this instance as a dict."""
+    raise NotImplementedError()
 
   def validate(self):
     """Validates that this is a legal tree ref.
@@ -102,6 +134,55 @@ class GitTreeRef:
     Raises:
       UserError on failure (which can be ignored if validation is optional).
     """
+    pass
+
+  @property
+  def tree_id(self) -> str:
+    """A unique identifier for the tree"""
+    raise NotImplementedError()
+
+  def checkout(self):
+    """Checks out the tree into the universe."""
+    raise NotImplementedError()
+
+  @property
+  def dependencies(self):
+    """Gets the immediately dependent trees."""
+    raise NotImplementedError()
+
+  def make_link(self, target_path):
+    """Makes a link from the physical repository to the specified target."""
+    raise NotImplementedError()
+
+
+class GitTreeRef(BaseTreeRef):
+  """A reference to a git tree mapped into an mmr."""
+  CONFIG_TYPE = "git"
+
+  def __init__(self, repo: Repo, url_spec: str, working_tree: str):
+    super().__init__(repo)
+    self._url_spec = url_spec
+    self._working_tree = working_tree
+    self._url = urllib.parse.urlsplit(url_spec)
+    self._deps = None
+    self._submodule_deps_provider = None
+
+  @staticmethod
+  def from_dict(repo: Repo, d):
+    url_spec = d["url"]
+    working_tree = d["working_tree"]
+    return GitTreeRef(repo=repo, url_spec=url_spec, working_tree=working_tree)
+
+  def as_dict(self) -> dict:
+    return {"url": self._url_spec, "working_tree": self._working_tree}
+
+  @property
+  def tree_id(self) -> str:
+    # TODO: The id should really be canonicalized based on some knowledge
+    # of the origin.
+    return "git/{}".format(self._url_spec)
+
+  def validate(self):
     if self._url.scheme not in ["http", "https", "ssh"]:
       raise UserError("Unsupported git remote scheme: {}", self._url.scheme)
 
@@ -114,10 +195,6 @@ class GitTreeRef:
 
   def __hash__(self):
     return hash(self._url_spec)
-
-  @property
-  def repo(self) -> Repo:
-    return self._repo
 
   @property
   def url(self):
@@ -155,7 +232,6 @@ class GitTreeRef:
 
   @property
   def dependencies(self):
-    """Gets the immediately dependent trees."""
     self._init_deps()
     all_trees = set()
     for dep_provider in self._deps:
@@ -174,7 +250,6 @@ class GitTreeRef:
                                                      self._working_tree)
 
   def checkout(self):
-    """Checks out the tree into the universe."""
     path = self.path_in_repo
     if not self.repo.git.is_git_repository(path):
       self.repo.git.clone(self._url_spec, path)
@@ -189,8 +264,11 @@ class GitTreeRef:
     self._submodule_deps_provider.initialize()
 
   def make_link(self, target_path):
-    """Makes a link from the physical repository to the specified target."""
     source_path = self.path_in_repo
+    # Update the annotation.
+    annotation = GitConfigAnnotation(tree_id=self.tree_id)
+    annotation.save_to_git_root(source_path)
+
     if os.path.exists(target_path) or os.path.islink(target_path):
       if not os.path.islink(target_path):
         raise UserError("Cannot link tree: {} (path exists)", target_path)
@@ -277,14 +355,3 @@ def _make_dir(path: str, exist_ok=False):
     raise UserError("Unable to create directory {} (exists)", path)
   except OSError:
     raise UserError("Unable to create directory {}", path)
-
-
-class UserError(Exception):
-  """A user-reportable error."""
-
-  def __init__(self, message: str, *args, **kwargs):
-    super().__init__(message.format(*args, **kwargs))
-
-  @property
-  def message(self) -> str:
-    return self.args[0]

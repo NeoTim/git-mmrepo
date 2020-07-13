@@ -3,6 +3,7 @@
 import importlib
 import sys
 
+from mmrepo.common import *
 from mmrepo.repo import *
 
 
