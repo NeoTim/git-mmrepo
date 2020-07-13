@@ -49,7 +49,8 @@ class Repo:
 
   def tree_from_cwd(self, cwd=None):
     """Gets the tree from a current working directory."""
-    if cwd is None: cwd = os.getcwd()
+    if cwd is None:
+      cwd = os.getcwd()
     toplevel = self.git.find_git_toplevel(cwd)
     annotation = GitConfigAnnotation.from_git_root(toplevel)
     existing_dict = self._config.trees.get_tree_by_id(annotation.tree_id)
@@ -251,6 +252,11 @@ class GitTreeRef(BaseTreeRef):
       all_trees.update(dep_provider.trees)
     return all_trees
 
+  @property
+  def dep_providers(self):
+    self._init_deps()
+    return self._deps
+
   def _init_deps(self):
     if self._deps:
       return
@@ -296,6 +302,10 @@ class GitTreeRef(BaseTreeRef):
     print("Create symlink {} -> '{}'".format(source_path, target_path))
     os.symlink(source_path, target_path, target_is_directory=True)
 
+  def update_version(self, version):
+    """Updates the version for this tree."""
+    self.repo.git.checkout_version(repository=self.path_in_repo, version=version)
+
 
 class SubmoduleDepProvider:
   """Encapsulates access to submodule dependencies of a git repo."""
@@ -328,6 +338,14 @@ class SubmoduleDepProvider:
         for info in self._module_info_dict.values()
     ]
 
+  def _tree_for_module_info(self, module_info):
+    return GitTreeRef(self.repo,
+                      url_spec=module_info.url,
+                      working_tree=DEFAULT_WORKING_TREE)
+
+  def _tree_for_path(self, local_path):
+    return self._tree_for_module_info(self._module_info_dict[local_path])
+
   def initialize(self):
     """Performs clone or update time initialization of submodules.
 
@@ -337,9 +355,7 @@ class SubmoduleDepProvider:
     if not self.has_submodules:
       return
     for module_info in self._module_info_dict.values():
-      module_tree_ref = GitTreeRef(self.repo,
-                                   url_spec=module_info.url,
-                                   working_tree=DEFAULT_WORKING_TREE)
+      module_tree_ref = self._tree_for_module_info(module_info)
       module_tree_path = module_tree_ref.path_in_repo
       module_path = os.path.join(self._git_path, module_info.path)
 
@@ -359,6 +375,19 @@ class SubmoduleDepProvider:
         if os.path.exists(module_path):
           os.rmdir(module_path)
         module_tree_ref.make_link(module_path)
+
+  def lookup_versions(self):
+    """Looks up requested versions for dependent trees.
+
+    Returns:
+      Sequence of (dep_tree, version).
+    """
+    path_versions = self.repo.git.parse_submodule_versions(
+        repository=self._git_path)
+    return [
+        (self._tree_for_path(path), version)
+        for path, version in path_versions
+    ]
 
 
 def _make_dir(path: str, exist_ok=False):

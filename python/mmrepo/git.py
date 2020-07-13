@@ -67,6 +67,36 @@ class GitExecutor:
       module_info_dict[path] = SubmoduleInfo(url=url, path=path)
     return module_info_dict
 
+  def parse_submodule_versions(self, repository):
+    """Parses the submodule versions.
+
+    Returns:
+      Sequence of (path, version).
+    """
+    # This works even for not inited submodules (but prints a '-' in the first
+    # char).
+    status_lines = self.execute(
+        ["git", "submodule", "status"],
+        cwd=repository,
+        capture_output=True,
+        silent=True).strip().decode("UTF-8").splitlines()
+    results = []
+    for line in status_lines:
+      line = line.strip()
+      if line.startswith("-"):
+        line = line[1:]
+      version, path = line.split(" ", 1)
+      results.append((path, version))
+    return results
+
+  def checkout_version(self, repository, version):
+    """Checks out a version from a repository.
+
+    Fails if the repository is dirty.
+    """
+    self.execute(["git", "fetch"], cwd=repository)
+    self.execute(["git", "checkout", version], cwd=repository)
+
   def execute(self, args, cwd, capture_output=False, silent=False, **kwargs):
     """Executes a command.
     Args:
