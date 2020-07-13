@@ -8,9 +8,10 @@ from mmrepo.git import GitExecutor
 
 MMREPO_DIR = ".mmrepo"
 UNIVERSE_DIR = "universe"
+DEFAULT_WORKING_TREE = "defaultwt"
 
 __all__ = [
-    "GitRemoteRef",
+    "GitTreeRef",
     "Repo",
     "UserError",
 ]
@@ -40,10 +41,14 @@ class Repo:
   def git(self) -> GitExecutor:
     return self._git
 
-  def get_remote(self, remote_url: str, remote_type="git") -> "GitRemoteRef":
+  def get_tree(self,
+               remote_url: str,
+               working_tree=DEFAULT_WORKING_TREE,
+               remote_type="git") -> "GitTreeRef":
     assert remote_type == "git"
-    remote = GitRemoteRef(self, remote_url)
-    return remote
+    assert working_tree == "defaultwt"
+    tree = GitTreeRef(self, url_spec=remote_url, working_tree=working_tree)
+    return tree
 
   @staticmethod
   def find_from_cwd(from_cwd: Optional[str] = None):
@@ -79,19 +84,20 @@ class Repo:
     return Repo(from_cwd)
 
 
-class GitRemoteRef:
-  """A reference to a git remote mapped into an mmr."""
+class GitTreeRef:
+  """A reference to a git tree mapped into an mmr."""
 
-  def __init__(self, repo: Repo, url_spec: str):
+  def __init__(self, repo: Repo, url_spec: str, working_tree: str):
     super().__init__()
     self._repo = repo
     self._url_spec = url_spec
+    self._working_tree = working_tree
     self._url = urllib.parse.urlsplit(url_spec)
     self._deps = None
-    self._submodule_deps = None
+    self._submodule_deps_provider = None
 
   def validate(self):
-    """Validates that this is a legal remote.
+    """Validates that this is a legal tree ref.
 
     Raises:
       UserError on failure (which can be ignored if validation is optional).
@@ -100,8 +106,10 @@ class GitRemoteRef:
       raise UserError("Unsupported git remote scheme: {}", self._url.scheme)
 
   def __eq__(self, other):
-    if self is other: return True
-    if type(other) is not GitRemoteRef: return False
+    if self is other:
+      return True
+    if type(other) is not GitTreeRef:
+      return False
     return self._url_spec == other._url_spec
 
   def __hash__(self):
@@ -130,7 +138,7 @@ class GitRemoteRef:
   @property
   def path_in_repo(self) -> str:
     url = self._url
-    return os.path.join(self._repo.universe_dir, url.netloc,
+    return os.path.join(self._repo.universe_dir, self._working_tree, url.netloc,
                         self.declared_local_path)
 
   @property
@@ -147,24 +155,26 @@ class GitRemoteRef:
 
   @property
   def dependencies(self):
-    """Gets the immediately dependent remotes."""
+    """Gets the immediately dependent trees."""
     self._init_deps()
-    all_remotes = set()
+    all_trees = set()
     for dep_provider in self._deps:
-      all_remotes.update(dep_provider.remotes)
-    return all_remotes
+      all_trees.update(dep_provider.trees)
+    return all_trees
 
   def _init_deps(self):
     if self._deps:
       return
-    self._submodule_deps = SubmoduleDeps(self.repo, self.path_in_repo)
-    self._deps = [self._submodule_deps]
+    self._submodule_deps_provider = SubmoduleDepProvider(
+        self.repo, self.path_in_repo)
+    self._deps = [self._submodule_deps_provider]
 
   def __repr__(self):
-    return "GitRemote({})".format(self._url_spec)
+    return "GitTree(url={}, working_tree={})".format(self._url_spec,
+                                                     self._working_tree)
 
   def checkout(self):
-    """Checks out the remote into the universe."""
+    """Checks out the tree into the universe."""
     path = self.path_in_repo
     if not self.repo.git.is_git_repository(path):
       self.repo.git.clone(self._url_spec, path)
@@ -176,27 +186,27 @@ class GitRemoteRef:
     # Even though we aren't actually doing recursive checkouts here, it is
     # necessary to initialize various git structures.
     self._init_deps()
-    self._submodule_deps.initialize()
+    self._submodule_deps_provider.initialize()
 
   def make_link(self, target_path):
     """Makes a link from the physical repository to the specified target."""
     source_path = self.path_in_repo
     if os.path.exists(target_path) or os.path.islink(target_path):
       if not os.path.islink(target_path):
-        raise UserError("Cannot link remote: {} (path exists)", target_path)
+        raise UserError("Cannot link tree: {} (path exists)", target_path)
       existing_target = os.readlink(target_path)
       if existing_target == source_path:
         print(
             "Not creating link because the path '{}' is already linked correctly"
             .format(target_path))
         return
-      raise UserError("Cannot link remote: {} (path is already linked to {})",
+      raise UserError("Cannot link tree: {} (path is already linked to {})",
                       target_path, source_path)
     print("Create symlink {} -> '{}'".format(source_path, target_path))
     os.symlink(source_path, target_path, target_is_directory=True)
 
 
-class SubmoduleDeps:
+class SubmoduleDepProvider:
   """Encapsulates access to submodule dependencies of a git repo."""
 
   def __init__(self, repo, git_path):
@@ -218,10 +228,12 @@ class SubmoduleDeps:
     return self._git_path
 
   @property
-  def remotes(self):
+  def trees(self):
     """Gets a list of the remotes corresponding to the submodules."""
     return [
-        GitRemoteRef(self._repo, info.url)
+        GitTreeRef(self._repo,
+                   url_spec=info.url,
+                   working_tree=DEFAULT_WORKING_TREE)
         for info in self._module_info_dict.values()
     ]
 
@@ -234,8 +246,10 @@ class SubmoduleDeps:
     if not self.has_submodules:
       return
     for module_info in self._module_info_dict.values():
-      module_remote_ref = GitRemoteRef(self.repo, module_info.url)
-      module_remote_path = module_remote_ref.path_in_repo
+      module_tree_ref = GitTreeRef(self.repo,
+                                   url_spec=module_info.url,
+                                   working_tree=DEFAULT_WORKING_TREE)
+      module_tree_path = module_tree_ref.path_in_repo
       module_path = os.path.join(self._git_path, module_info.path)
 
       # Tell git "hands off"!
@@ -246,14 +260,14 @@ class SubmoduleDeps:
       if os.path.islink(module_path):
         # Update the link (for tidyness and better self correction).
         os.unlink(module_path)
-        module_remote_ref.make_link(module_path)
+        module_tree_ref.make_link(module_path)
       elif (not os.path.exists(module_path) or os.path.isdir(module_path)):
         # Create the symlink.
         print("Redirecting submodule {} to {}".format(module_info.path,
-                                                      module_remote_path))
+                                                      module_tree_path))
         if os.path.exists(module_path):
           os.rmdir(module_path)
-        module_remote_ref.make_link(module_path)
+        module_tree_ref.make_link(module_path)
 
 
 def _make_dir(path: str, exist_ok=False):

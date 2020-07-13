@@ -1,48 +1,48 @@
 from mmrepo.repo import *
 
-HELP_MESSAGE = """Checks out a remote git repository.
+HELP_MESSAGE = """Checks out a git repository tree.
 
 Syntax: mmr checkout <repository url> [local path]
 """
 
-def checkout(repo, remote):
-  print("Checking out remote {}".format(remote))
-  remote.checkout()
+def checkout(repo, tree):
+  print("Checking out tree {}".format(tree))
+  tree.checkout()
 
 
 def exec(*args):
   if len(args) == 1:
-    remote_url = args[0]
+    tree_url = args[0]
     local_path = None
   elif len(args) == 2:
-    remote_url, local_path = args
+    tree_url, local_path = args
 
   # Checkout the repository.
   repo = Repo.find_from_cwd()
-  remote = repo.get_remote(remote_url)
-  checkout(repo, remote)
+  tree = repo.get_tree(tree_url)
+  checkout(repo, tree)
 
   # Create the requested link.
   if local_path is None:
-    local_path = remote.default_local_path
-  remote.make_link(local_path)
+    local_path = tree.default_local_path
+  tree.make_link(local_path)
 
   # Collect recursive dependencies.
   recursive_processed = set()
   recursive_errored = set()
   all_depends = set()
 
-  all_depends.add(remote)
-  recursive_processed.add(remote)
-  all_depends.update(remote.dependencies)
+  all_depends.add(tree)
+  recursive_processed.add(tree)
+  all_depends.update(tree.dependencies)
 
   while all_depends != recursive_processed:
-    for remote_dep in all_depends:
-      if remote_dep in recursive_processed:
+    for tree_dep in all_depends:
+      if tree_dep in recursive_processed:
         continue
-      recursive_processed.add(remote_dep)
-      print("Checking out remote {}".format(remote_dep))
-      checkout(repo, remote_dep)
+      recursive_processed.add(tree_dep)
+      print("Checking out tree {}".format(tree_dep))
+      checkout(repo, tree_dep)
 
   # Report.
   print("** Processed {} repositories".format(len(all_depends)))
