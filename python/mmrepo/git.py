@@ -4,7 +4,11 @@ import collections
 import os
 import subprocess
 
+from mmrepo.common import *
+
 SubmoduleInfo = collections.namedtuple("SubmoduleInfo", "url,path")
+
+PRINT_ALL = True
 
 
 class GitExecutor:
@@ -12,7 +16,7 @@ class GitExecutor:
 
   def is_git_repository(self, path):
     """Returns whether the given path appears to be a git repo."""
-    if not os.path.isdir(os.path.join(path, ".git")):
+    if not os.path.isfile(os.path.join(path, ".git", "HEAD")):
       return False
     self.find_git_toplevel(cwd=path)  # For sanity
     return True
@@ -108,20 +112,18 @@ class GitExecutor:
     Returns:
       The output if capture_output, otherwise None.
     """
-    if not silent:
-      print("+", " ".join(args), "  [from %s]" % cwd)
-    if capture_output:
-      return subprocess.check_output(args, cwd=cwd, **kwargs)
-    else:
-      return subprocess.check_call(args, cwd=cwd, **kwargs)
+    try:
+      if PRINT_ALL or not silent:
+        print("+", " ".join(args), "  [from %s]" % cwd)
+      if capture_output:
+        return subprocess.check_output(args, cwd=cwd, **kwargs)
+      else:
+        return subprocess.check_call(args, cwd=cwd, **kwargs)
+    except subprocess.CalledProcessError:
+      message = "\n".join([
+        "Error executing command:",
+        "  cd {}".format(cwd),
+        "  {}".format(" ".join(args)),
+      ])
+      raise UserError(message)
 
-
-class GitError(Exception):
-  """An error from git."""
-
-  def __init__(self, message: str, *args, **kwargs):
-    super().__init__(message.format(*args, **kwargs))
-
-  @property
-  def message(self) -> str:
-    return self.args[0]

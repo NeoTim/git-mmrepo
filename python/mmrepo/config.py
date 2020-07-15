@@ -4,8 +4,6 @@ from collections import namedtuple
 import json
 import os
 
-GIT_CONFIG_ANNOTATION_FILE = "mmr-config"
-
 __all__ = [
     "RepoConfig",
     "RepoTreesConfig",
@@ -58,15 +56,20 @@ class RepoTreesConfig:
 class GitConfigAnnotation(namedtuple("GitConfigAnnotation", "tree_id")):
   """An annotation that gets stored in .git directories linking to the mmr."""
 
+  @staticmethod
+  def _get_config_file(git_root_path: str) -> str:
+    parent = os.path.dirname(git_root_path)
+    base = os.path.basename(git_root_path)
+    return os.path.join(parent, ".{}.mmr-config".format(base))
+
   @classmethod
   def from_git_root(cls, git_root_path) -> "GitConfigAnnotation":
-    path = os.path.join(git_root_path, ".git", GIT_CONFIG_ANNOTATION_FILE)
-    d = read_json_file(path)
+    d = read_json_file(cls._get_config_file(git_root_path))
     return cls(tree_id=d["tree_id"])
 
   def save_to_git_root(self, git_root_path):
-    path = os.path.join(git_root_path, ".git", GIT_CONFIG_ANNOTATION_FILE)
-    write_json_file(path, {"tree_id": self.tree_id})
+    write_json_file(self._get_config_file(git_root_path),
+                    {"tree_id": self.tree_id})
 
 
 def read_json_file(path):

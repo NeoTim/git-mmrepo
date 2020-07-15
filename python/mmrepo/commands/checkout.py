@@ -41,7 +41,6 @@ def exec(*args):
       if tree_dep in recursive_processed:
         continue
       recursive_processed.add(tree_dep)
-      print("Checking out tree {}".format(tree_dep))
       checkout(repo, tree_dep)
 
   # Report.
