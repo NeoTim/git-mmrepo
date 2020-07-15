@@ -2,13 +2,21 @@
 
 import collections
 import os
+import re
 import subprocess
+import sys
+import urllib.parse
 
 from mmrepo.common import *
 
 SubmoduleInfo = collections.namedtuple("SubmoduleInfo", "url,path")
 
 PRINT_ALL = True
+
+__all__ = [
+    "GitExecutor",
+    "GitOrigin",
+]
 
 
 class GitExecutor:
@@ -121,9 +129,105 @@ class GitExecutor:
         return subprocess.check_call(args, cwd=cwd, **kwargs)
     except subprocess.CalledProcessError:
       message = "\n".join([
-        "Error executing command:",
-        "  cd {}".format(cwd),
-        "  {}".format(" ".join(args)),
+          "Error executing command:",
+          "  cd {}".format(cwd),
+          "  {}".format(" ".join(args)),
       ])
       raise UserError(message)
 
+
+class GitOrigin:
+  """Wraps a git URL, applying some normalization.
+
+  HTTPS origins:
+    >>> https_origin = GitOrigin("https://github.com/stellaraccident/mlir-federation.git")
+    >>> https_origin.git_origin
+    'https://github.com/stellaraccident/mlir-federation.git'
+    >>> https_origin.universe_path
+    'github.com/stellaraccident/mlir-federation.git'
+    >>> https_origin.default_alias
+    'mlir-federation'
+
+  SSH origins:
+    >>> ssh_origin = GitOrigin("git@github.com:stellaraccident/mlir-federation.git")
+    >>> ssh_origin.git_origin
+    'git@github.com:stellaraccident/mlir-federation.git'
+    >>> ssh_origin.universe_path
+    'github.com/stellaraccident/mlir-federation.git'
+    >>> ssh_origin.default_alias
+    'mlir-federation'
+  """
+
+  def __init__(self, spec):
+    super().__init__()
+    self._spec = spec
+
+  def __eq__(self, other):
+    return self._spec == other._spec
+
+  def __hash__(self):
+    return hash(self._spec)
+
+  def __repr__(self):
+    return self._spec
+
+  @property
+  def git_origin(self) -> str:
+    return self._spec
+
+  @property
+  def universe_path(self) -> str:
+    """Returns a unique path for this in the universe.
+
+    Ideally, this normalizes SSH and HTTPS access mechanisms for a host
+    so that they produce the same universe location.
+    """
+    if self._spec.startswith("https://") or self._spec.startswith("http://"):
+      # Extract {netloc}{path}
+      url = urllib.parse.urlsplit(self._spec)
+      norm_path = url.path
+      # Remove leading '/', making it relative.
+      if norm_path and norm_path[0] == "/":
+        norm_path = norm_path[1:]
+      # TODO: Be more exacting in scrubbing the path?
+      norm_path = norm_path.replace("/", os.path.sep)
+      assert not os.path.isabs(norm_path)
+      return os.path.join(url.netloc, norm_path)
+    else:
+      # Assume SSH.
+      try:
+        split_pos = self._spec.index(":")
+      except ValueError:
+        raise UserError(
+            "Git origin does not appear to be an SSH path: {}".format(
+                self._spec))
+      netloc = self._spec[0:split_pos]
+      path = self._spec[split_pos + 1:]
+      try:
+        atpos = netloc.index("@")
+      except ValueError:
+        pass  # No user.
+      else:
+        netloc = netloc[atpos + 1:]
+      if path and path[0] == "/":
+        path = path[1:]
+      # TODO: Be more exacting in scrubbing the path?
+      path = path.replace("/", os.path.sep)
+      assert not os.path.isabs(path)
+      return os.path.join(netloc, path)
+
+  @property
+  def default_alias(self) -> str:
+    """Return a default short alias name for this repo.
+
+    This is typically the last component of the path, minus any .git suffix.
+    """
+    basename = os.path.basename(self.universe_path)
+    if basename.endswith(".git"):
+      return basename[0:-4]
+    return basename
+
+
+if __name__ == "__main__":
+  import doctest
+  doctest.testmod()

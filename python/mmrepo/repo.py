@@ -2,11 +2,10 @@
 
 from typing import Optional
 import os
-import urllib.parse
 
 from mmrepo.common import *
 from mmrepo.config import *
-from mmrepo.git import GitExecutor
+from mmrepo.git import *
 
 MMREPO_DIR = ".mmrepo"
 UNIVERSE_DIR = "universe"
@@ -175,9 +174,8 @@ class GitTreeRef(BaseTreeRef):
 
   def __init__(self, repo: Repo, url_spec: str, working_tree: str):
     super().__init__(repo)
-    self._url_spec = url_spec
+    self._origin = GitOrigin(url_spec)
     self._working_tree = working_tree
-    self._url = urllib.parse.urlsplit(url_spec)
     self._deps = None
     self._submodule_deps_provider = None
 
@@ -188,49 +186,34 @@ class GitTreeRef(BaseTreeRef):
     return GitTreeRef(repo=repo, url_spec=url_spec, working_tree=working_tree)
 
   def as_dict(self) -> dict:
-    return {"url": self._url_spec, "working_tree": self._working_tree}
+    return {"url": self._origin.git_origin, "working_tree": self._working_tree}
 
   @property
   def tree_id(self) -> str:
     # TODO: The id should really be canonicalized based on some knowledge
     # of the origin.
-    return "git/{}".format(self._url_spec)
+    return "git/{}".format(self._origin.git_origin)
 
   def validate(self):
-    if self._url.scheme not in ["http", "https", "ssh"]:
-      raise UserError("Unsupported git remote scheme: {}", self._url.scheme)
+    self._origin.universe_path  # Validate
 
   def __eq__(self, other):
     if self is other:
       return True
     if type(other) is not GitTreeRef:
       return False
-    return self._url_spec == other._url_spec
+    return self._origin == other._origin
 
   def __hash__(self):
-    return hash(self._url_spec)
+    return hash(self._origin)
 
   @property
   def url(self):
-    return self._url
-
-  @property
-  def declared_local_path(self) -> str:
-    """Path name components normalized to local system requirements."""
-    norm_path = self._url.path
-    # Remove leading '/', making it relative.
-    if norm_path and norm_path[0] == "/":
-      norm_path = norm_path[1:]
-    # TODO: Be more exacting in scrubbing the path?
-    norm_path = norm_path.replace("/", os.path.sep)
-    assert not os.path.isabs(norm_path)
-    return norm_path
+    return self._origin.git_origin
 
   @property
   def path_in_repo(self) -> str:
-    url = self._url
-    return os.path.join(self._repo.universe_dir, self._working_tree, url.netloc,
-                        self.declared_local_path)
+    return os.path.join(self._repo.universe_dir, self._origin.universe_path)
 
   @property
   def default_local_path(self) -> str:
@@ -239,10 +222,7 @@ class GitTreeRef(BaseTreeRef):
     This defaults to the last directory component minus the ".git" suffix
     (similar to git).
     """
-    basename = os.path.basename(self.declared_local_path)
-    if basename.endswith(".git"):
-      return basename[0:-4]
-    return basename
+    return self._origin.default_alias
 
   @property
   def dependencies(self):
@@ -265,16 +245,16 @@ class GitTreeRef(BaseTreeRef):
     self._deps = [self._submodule_deps_provider]
 
   def __repr__(self):
-    return "GitTree(url={}, working_tree={})".format(self._url_spec,
+    return "GitTree(url={}, working_tree={})".format(self._origin,
                                                      self._working_tree)
 
   def checkout(self):
     path = self.path_in_repo
     if not self.repo.git.is_git_repository(path):
-      self.repo.git.clone(self._url_spec, path)
+      self.repo.git.clone(self._origin.git_origin, path)
       self._deps = None
     else:
-      print("Skipping clone of {} (already exists)".format(self._url_spec))
+      print("Skipping clone of {} (already exists)".format(self._origin))
 
     # Make sure that submodule initialization has been done.
     # Even though we aren't actually doing recursive checkouts here, it is
@@ -304,7 +284,8 @@ class GitTreeRef(BaseTreeRef):
 
   def update_version(self, version):
     """Updates the version for this tree."""
-    self.repo.git.checkout_version(repository=self.path_in_repo, version=version)
+    self.repo.git.checkout_version(repository=self.path_in_repo,
+                                   version=version)
 
 
 class SubmoduleDepProvider:
@@ -385,8 +366,7 @@ class SubmoduleDepProvider:
     path_versions = self.repo.git.parse_submodule_versions(
         repository=self._git_path)
     return [
-        (self._tree_for_path(path), version)
-        for path, version in path_versions
+        (self._tree_for_path(path), version) for path, version in path_versions
     ]
 
 
