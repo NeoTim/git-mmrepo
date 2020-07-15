@@ -1,10 +1,15 @@
 """Manages configuration settings."""
 
+from typing import Sequence
+
 from collections import namedtuple
 import json
 import os
 
 __all__ = [
+    "read_json_file",
+    "write_json_file",
+    "DepRecord",
     "RepoConfig",
     "RepoTreesConfig",
     "GitConfigAnnotation",
@@ -70,6 +75,26 @@ class GitConfigAnnotation(namedtuple("GitConfigAnnotation", "tree_id")):
   def save_to_git_root(self, git_root_path):
     write_json_file(self._get_config_file(git_root_path),
                     {"tree_id": self.tree_id})
+
+
+class DepRecord(namedtuple("DepRecord", "paths,version,url")):
+  """Represents a dependency record."""
+
+  @staticmethod
+  def read_from_file(deps_file: str) -> Sequence["DepRecord"]:
+    file_dict = read_json_file(deps_file)
+    if not file_dict:
+      return []
+    deps_records = file_dict.get("deps")
+    if not deps_records:
+      return []
+    results = []
+    for dep_record in deps_records:
+      results.append(
+          DepRecord(paths=[dep_record["path"]],
+                    version=dep_record["version"],
+                    url=dep_record["url"]))
+    return results
 
 
 def read_json_file(path):

@@ -240,9 +240,16 @@ class GitTreeRef(BaseTreeRef):
   def _init_deps(self):
     if self._deps:
       return
+    # Add a default submodule deps provider.
     self._submodule_deps_provider = SubmoduleDepProvider(
         self.repo, self.path_in_repo)
     self._deps = [self._submodule_deps_provider]
+
+    # See if there should be a JSON deps provider.
+    json_deps_provider = JsonDepProvider.create_if_exists(
+        repo=self.repo, parent_dir=self.path_in_repo)
+    if json_deps_provider:
+      self._deps.append(json_deps_provider)
 
   def __repr__(self):
     return "GitTree(url={}, working_tree={})".format(self._origin,
@@ -259,8 +266,8 @@ class GitTreeRef(BaseTreeRef):
     # Make sure that submodule initialization has been done.
     # Even though we aren't actually doing recursive checkouts here, it is
     # necessary to initialize various git structures.
-    self._init_deps()
-    self._submodule_deps_provider.initialize()
+    for dep_provider in self.dep_providers:
+      dep_provider.initialize()
 
   def make_link(self, target_path):
     source_path = self.path_in_repo
@@ -275,11 +282,12 @@ class GitTreeRef(BaseTreeRef):
       if existing_target == source_path:
         print(
             "Not creating link because the path '{}' is already linked correctly"
-            .format(target_path))
+            .format(target_path), " ({})".format(target_path))
         return
       raise UserError("Cannot link tree: {} (path is already linked to {})",
                       target_path, source_path)
     print("Create symlink {} -> '{}'".format(source_path, target_path))
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
     os.symlink(source_path, target_path, target_is_directory=True)
 
   def update_version(self, version):
@@ -288,7 +296,80 @@ class GitTreeRef(BaseTreeRef):
                                    version=version)
 
 
-class SubmoduleDepProvider:
+class BaseDepProvider:
+  """Provides access to dependencies for a tree."""
+
+  @property
+  def trees(self):
+    """Gets a list of the remotes corresponding to the submodules."""
+    raise NotImplementedError()
+
+  def initialize(self):
+    """Performs clone or update time initialization."""
+    raise NotImplementedError()
+
+
+class JsonDepProvider(BaseDepProvider):
+  """Light-weight dep provider that processes a module_deps.json file."""
+  DEFAULT_DEPS_FILENAME = "module_deps.json"
+
+  def __init__(self, repo: Repo, deps_file: str):
+    super().__init__()
+    self._repo = repo
+    self._deps_file = deps_file
+
+  @property
+  def parent_dir(self):
+    return os.path.dirname(self._deps_file)
+
+  @classmethod
+  def create_if_exists(cls, repo: Repo, parent_dir: str):
+    """Creates a provider if the deps file exists."""
+    deps_file = os.path.join(parent_dir, cls.DEFAULT_DEPS_FILENAME)
+    if os.path.isfile(deps_file):
+      return cls(repo=repo, deps_file=deps_file)
+    return None
+
+  def initialize(self):
+    dep_records = DepRecord.read_from_file(self._deps_file)
+    for dep_record in dep_records:
+      try:
+        tree = self._repo.get_tree(dep_record.url,
+                                   working_tree=DEFAULT_WORKING_TREE,
+                                   remote_type="git")
+      except UserError as e:
+        print("** ERROR INITIALIZING DEPENDENCY (skipped):", dep_record.url)
+        print(e.message)
+        continue
+      for target_path in dep_record.paths:
+        local_path = os.path.join(self.parent_dir, target_path)
+        # Setup the symlink.
+        if os.path.islink(local_path):
+          # Update the link (for tidyness and better self correction).
+          os.unlink(local_path)
+        elif os.path.exists(local_path):
+          raise UserError(
+              "Dependency path {} must not exist or be a symlink".format(
+                  local_path))
+        tree.make_link(local_path)
+
+  @property
+  def trees(self):
+    dep_records = DepRecord.read_from_file(self._deps_file)
+    trees = []
+    for dep_record in dep_records:
+      try:
+        trees.append(
+            self._repo.get_tree(dep_record.url,
+                                working_tree=DEFAULT_WORKING_TREE,
+                                remote_type="git"))
+      except UserError as e:
+        print("** ERROR INITIALIZING DEPENDENCY (skipped):", dep_record.url)
+        print(e.message)
+    return trees
+
+
+class SubmoduleDepProvider(BaseDepProvider):
   """Encapsulates access to submodule dependencies of a git repo."""
 
   def __init__(self, repo, git_path):
@@ -312,17 +393,20 @@ class SubmoduleDepProvider:
   @property
   def trees(self):
     """Gets a list of the remotes corresponding to the submodules."""
-    return [
-        GitTreeRef(self._repo,
-                   url_spec=info.url,
-                   working_tree=DEFAULT_WORKING_TREE)
-        for info in self._module_info_dict.values()
-    ]
+    trees = []
+    for info in self._module_info_dict.values():
+      try:
+        trees.append(self._tree_for_module_info(info))
+      except UserError as e:
+        print("** ERROR INITIALIZING DEPENDENCY (skipped):", info)
+        print(e.message)
+        continue
+    return trees
 
   def _tree_for_module_info(self, module_info):
-    return GitTreeRef(self.repo,
-                      url_spec=module_info.url,
-                      working_tree=DEFAULT_WORKING_TREE)
+    return self._repo.get_tree(remote_url=module_info.url,
+                               working_tree=DEFAULT_WORKING_TREE,
+                               remote_type="git")
 
   def _tree_for_path(self, local_path):
     return self._tree_for_module_info(self._module_info_dict[local_path])
@@ -336,7 +420,13 @@ class SubmoduleDepProvider:
     if not self.has_submodules:
       return
     for module_info in self._module_info_dict.values():
-      module_tree_ref = self._tree_for_module_info(module_info)
+      try:
+        module_tree_ref = self._tree_for_module_info(module_info)
+      except UserError as e:
+        print("** ERROR INITIALIZING DEPENDENCY (skipped):", module_info)
+        print(e.message)
+        continue
+
       module_tree_path = module_tree_ref.path_in_repo
       module_path = os.path.join(self._git_path, module_info.path)
 
@@ -365,9 +455,15 @@ class SubmoduleDepProvider:
     """
     path_versions = self.repo.git.parse_submodule_versions(
         repository=self._git_path)
-    return [
-        (self._tree_for_path(path), version) for path, version in path_versions
-    ]
+    results = []
+    for path, version in path_versions:
+      try:
+        results.append((self._tree_for_path(path), version))
+      except UserError as e:
+        print("** ERROR INITIALIZING DEPENDENCY (skipped):", path)
+        print(e.message)
+        continue
+    return results
 
 
 def _make_dir(path: str, exist_ok=False):

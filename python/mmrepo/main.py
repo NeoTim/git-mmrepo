@@ -28,6 +28,7 @@ def main():
     exec_command(command, *args)
   except UserError as e:
     print("ERROR:", e.message)
+    raise
     sys.exit(1)
 
 
