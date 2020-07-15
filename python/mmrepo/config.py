@@ -1,5 +1,6 @@
 """Manages configuration settings."""
 
+import itertools
 from typing import Sequence
 
 from collections import namedtuple
@@ -52,6 +53,29 @@ class RepoTreesConfig:
     td = self._contents["trees"]
     assert isinstance(td, dict)
     return td
+
+  @property
+  def aliases(self):
+    if not "aliases" in self._contents:
+      self._contents["aliases"] = {}
+    aliases = self._contents["aliases"]
+    assert isinstance(aliases, dict)
+    return aliases
+
+  def add_alias(self, alias: str, tree_id: str) -> str:
+    """Adds an alias to a tree id.
+
+    If the alias already exists and is bound to another tree, then an integer
+    is appended to unique it. The actual alias is returned.
+    """
+    requested_alias = alias
+    aliases = self.aliases
+    for i in itertools.count(0):
+      existing_tree_id = aliases.get(alias)
+      if existing_tree_id is None or existing_tree_id == tree_id:
+        aliases[alias] = tree_id
+        return alias
+      alias = requested_alias + "-" + str(i)
 
   def get_tree_by_id(self, tree_id):
     td = self.tree_dicts

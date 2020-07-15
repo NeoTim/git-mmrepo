@@ -72,6 +72,7 @@ class Repo:
     existing_dict = self._config.trees.get_tree_by_id(tree_id)
     if existing_dict is None:
       print("Added new tree {}".format(tree_id))
+      self._config.trees.add_alias(prototype.default_local_path, tree_id)
       prototype.save()
       return prototype
     else:
