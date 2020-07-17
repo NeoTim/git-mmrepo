@@ -1,43 +1,29 @@
 # Magical Monorepo for Git (MMR)
 
-DISCLAIMER: This may be a horrible, horrible, dirty, rotten idea. You have
-been warned.
+DISCLAIMER: This tool is primarily being co-developed with some related
+project release tools, and it is almost certainly not in a state for
+general use. We are using it for managing project graphs for CI systems,
+and it is quite a ways from being a general tool for developers.
 
 Manage a graph of projects related by submodules as an actual graph.
 
 ## What problem is this addressing?
 
-Submodules suck. We all know it. But, in the words of Miracle Max, maybe they
-only *mostly suck*. And there is a big difference between *mostly sucks* and
-*all the way sucks*.
+This tool attempts to stitch together a graph of git repos that may have
+mutual or duplicated dependencies (by way of submodules or JSON descriptors).
 
-It turns out, they are ok at managing a distributed graph of dependencies
-between projects in a way that is always locally consistent within a single
-project.
-
-What they are not so good at is every way you actually manage and use them. In
-their natural state, they are also not good for anything but "leaf" projects
-because each level of the hierarchy will tend to bring in its own copies of...
-everything. Your SSD fills up. Your internet gets capped. And you have N
-versions of everything with nothing but primitive tools to manage the graph.
-
-Let's not talk about what happens if you end up with a mutual or recursive
-dependency.
-
-A lot of this pushes people to either:
-
-* abandon submodules in favor of either ad-hoc scripting or build system
-  dependency managers that treat every source dependency as a black box.
-* make bigger and bigger monorepos with more and more walls and higher and
-  higher standards of entry in order to slow down the growth of the large
-  shared cost.
+Unlike other tools, it aims to meet existing repositories where they are,
+either using submodule metadata to build the dependency graph or using
+more explicit mechanisms. The result is an ability to clone a root project
+that references a graph of repos that use various dependency styles and
+manage their versions holistically.
 
 ## What is it doing?
 
-MMR ever so politely tells git to stop being the user-agent for managing
-submodules. In order to use it, the primary thing you need to change about
-your git workflow is to never invoke any of the "git submodule ..."
-commands again.
+In submodule emulation mode, MMR ever so politely tells git to stop being 
+the user-agent for managing submodules. In order to use it, the primary 
+thing you need to change about your git workflow is to never invoke any of 
+the "git submodule ..." commands again.
 
 ## Getting started.
 
@@ -89,13 +75,13 @@ MMR is trying to be a tool that will let you set up the virtual monorepo in
 a state where, for any given project, a consistent view of versions is
 rational. Since this is not actually a carefully curated and tested monorepo,
 the fact is that there will be all kinds of illegal and inconsistent version
-states in practice. However, it is designed for a person, which typically
+states in practice. However, it is designed for a person or CI, which typically
 is only focusing on one (or a small number) of graph spans at a time.
 
 Want to sync to the checked in (known good) version graph that IREE has?
 
 ```shell
-mmr focus iree  # Not implemented yet
+mmr focus iree
 ```
 
 Want to bump one of the deps to head and trying to build? It's just a git
@@ -116,10 +102,7 @@ Stuck and just want to go back to how it was?
 mmr focus iree --force
 ```
 
-I'm still working on the actual UI here, but suffice to say, I'm trying to
-make it less of a foot gun than the current tools. Having the git submodule
-user-interface out of the way and just operating on the meta-graph allows most
-of the historic design flaws to be gotten around.
+The precise command line UI is still a work in progress.
 
 There are some other things that will be needed in practice like branch
 tracking and pinning to different repos, etc.
@@ -134,8 +117,5 @@ mmr dup ~/original_mmr_repo
 This can get away with just creating an `upstream_universe` symlink and then
 making sure to do any git clones with `--reference`, sharing most things. That
 way, you can easily end up with multiple, relatively light-weight "views"
-that can have different version graphs.
-
-I'm hoping that this and some build system consistency can help us resolve
-more of the diamond LLVM dependencies that are popping up and get a more
-sane dev flow.
+that can have different version graphs. This can be useful for various caching
+scenarios on build bots.
