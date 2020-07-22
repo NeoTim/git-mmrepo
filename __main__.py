@@ -14,7 +14,13 @@
 
 """Trampoline to make zipped directories runnable."""
 
+# Prepend the "python" subdirectory to the path, allowing execution from
+# a zip file copy of the entire repo. Note that this also works if the
+# resulting path is in a zip file.
+import os
+import sys
+mmrepo_path = os.path.join(os.path.dirname(__file__), "python")
+sys.path.insert(0, mmrepo_path)
+
 from mmrepo import main
-
-
 main.main()
