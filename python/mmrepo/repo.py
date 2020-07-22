@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Overall repository management."""
 
 from typing import Optional
@@ -19,6 +18,7 @@ import os
 
 from mmrepo.common import *
 from mmrepo.config import *
+from mmrepo import fileutils
 from mmrepo.git import *
 
 MMREPO_DIR = ".mmrepo"
@@ -303,7 +303,10 @@ class GitTreeRef(BaseTreeRef):
                       target_path, source_path)
     print("Create symlink {} -> '{}'".format(source_path, target_path))
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
-    os.symlink(source_path, target_path, target_is_directory=True)
+    fileutils.make_relative_link(source_path,
+                                 target_path,
+                                 self.repo.path,
+                                 target_is_directory=True)
 
   def update_version(self, version):
     """Updates the version for this tree."""
