@@ -139,8 +139,8 @@ class Repo:
     except UserError:
       pass
     else:
-      print("Repository already exists at {} (continuing)".format(
-          existing.path))
+      raise UserError("Repository cannot be created under existing {}",
+                      existing.path)
     # Create.
     repo_path = os.path.join(from_cwd, MMREPO_DIR)
     _make_dir(repo_path, exist_ok=True)
