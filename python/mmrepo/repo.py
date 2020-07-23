@@ -92,6 +92,28 @@ class Repo:
     else:
       return BaseTreeRef.from_dict(self, d=existing_dict)
 
+  def get_root_tree(self,
+                    working_tree=DEFAULT_WORKING_TREE,
+                    remote_type="git") -> "GitTreeRef":
+    """Gets a special root tree representing the root of the repository.
+
+    This is used when the repository root directory is itself a git repo
+    that should be managed.
+    """
+    assert remote_type == "git"
+    assert working_tree == "defaultwt"
+    tree_id = "git/__root__"
+    existing_dict = self._config.trees.get_tree_by_id(tree_id)
+    if existing_dict is not None:
+      return BaseTreeRef.from_dict(self, d=existing_dict)
+    new_tree = GitTreeRef(self, url_spec="__root__", working_tree=working_tree)
+    print("Adding new tree __root__")
+    annotation = GitConfigAnnotation(tree_id=tree_id)
+    annotation.save_to_git_root(self.path)
+    self._config.trees.add_alias(self.path, tree_id)
+    new_tree.save()
+    return new_tree
+
   @staticmethod
   def find_from_cwd(from_cwd: Optional[str] = None):
     if from_cwd is None:
@@ -117,7 +139,8 @@ class Repo:
     except UserError:
       pass
     else:
-      raise UserError("Cannot initialize: Existing repo at {}", existing.path)
+      print("Repository already exists at {} (continuing)".format(
+          existing.path))
     # Create.
     repo_path = os.path.join(from_cwd, MMREPO_DIR)
     _make_dir(repo_path, exist_ok=True)
@@ -227,8 +250,15 @@ class GitTreeRef(BaseTreeRef):
     return self._origin.git_origin
 
   @property
+  def is_root_tree(self):
+    return self.url == "__root__"
+
+  @property
   def path_in_repo(self) -> str:
-    return os.path.join(self._repo.universe_dir, self._origin.universe_path)
+    if self.is_root_tree:
+      return self.repo.path
+    else:
+      return os.path.join(self._repo.universe_dir, self._origin.universe_path)
 
   @property
   def default_local_path(self) -> str:
@@ -237,6 +267,8 @@ class GitTreeRef(BaseTreeRef):
     This defaults to the last directory component minus the ".git" suffix
     (similar to git).
     """
+    if self.is_root_tree:
+      return "__root__"
     return self._origin.default_alias
 
   @property
@@ -272,11 +304,12 @@ class GitTreeRef(BaseTreeRef):
 
   def checkout(self):
     path = self.path_in_repo
-    if not self.repo.git.is_git_repository(path):
-      self.repo.git.clone(self._origin.git_origin, path)
-      self._deps = None
-    else:
-      print("Skipping clone of {} (already exists)".format(self._origin))
+    if not self.is_root_tree:
+      if not self.repo.git.is_git_repository(path):
+        self.repo.git.clone(self._origin.git_origin, path)
+        self._deps = None
+      else:
+        print("Skipping clone of {} (already exists)".format(self._origin))
 
     # Make sure that submodule initialization has been done.
     # Even though we aren't actually doing recursive checkouts here, it is
@@ -285,6 +318,8 @@ class GitTreeRef(BaseTreeRef):
       dep_provider.initialize()
 
   def make_link(self, target_path):
+    if self.is_root_tree:
+      return
     source_path = self.path_in_repo
     # Update the annotation.
     annotation = GitConfigAnnotation(tree_id=self.tree_id)

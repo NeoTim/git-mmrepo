@@ -18,10 +18,18 @@ from mmrepo.repo import *
 
 HELP_MESSAGE = """Initializes a new magical mono repository.
 
-By default, the repository will be initialized in the current directory.
-It is an error to initialize a repository inside of an existing repository.
+By default, the repository will be initialized in the current directory
+as a "bare mm-repo", which means that it is not also a git repository.
+
+If the current working directory is also a git tree, the existing
+git tree will be mapped into the repo as the __root__ alias. A subsequent
+"mmr checkout" command can fully initialize its dependencies. Such
+root git trees cannot exist recursively in dependencies.
 """
 
 def exec(*args):
   r = Repo.init()
   print("Initialized new magical monorepo at {}".format(r.path))
+  if r.git.is_git_repository(r.path):
+    root_tree = r.get_root_tree()
+    print("Created root repository", root_tree.tree_id)

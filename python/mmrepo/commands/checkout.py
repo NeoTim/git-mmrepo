@@ -19,29 +19,46 @@ from mmrepo.repo import *
 
 HELP_MESSAGE = """Checks out a git repository tree.
 
-Syntax: mmr checkout <repository url> [local path]
+Syntax:
+  mmr checkout <repository url> [local path]
+  mmr checkout
+
+In the first form, a specific repository URL is checkout out, optionally
+at a specific local path. This is typically used in bare mm-repos.
+
+In the second form, the git tree that is mapped to the current working directory
+is checked out (all dependencies are resolved). Typically it will already
+exist, so a clone is skipped.
 """
 
 
-def checkout(repo, tree):
+def checkout(repo, tree, is_root_checkout):
   print("Checking out tree {}".format(tree))
   tree.checkout()
-  # Create a default link under all/
-  all_path = os.path.join(repo.path, "all", tree.default_local_path)
-  tree.make_link(all_path)
+  if not is_root_checkout:
+    # Create a default link under all/
+    all_path = os.path.join(repo.path, "all", tree.default_local_path)
+    tree.make_link(all_path)
 
 
 def exec(*args):
-  if len(args) == 1:
-    tree_url = args[0]
-    local_path = None
-  elif len(args) == 2:
-    tree_url, local_path = args
+  repo = Repo.find_from_cwd()
+  local_path = None
+  is_root_checkout = False
+  if len(args) == 0:
+    # Re-checkout the current repository.
+    tree = repo.tree_from_cwd()
+    is_root_checkout = True
+  else:
+    # Checkout a requested: git_url [local_path]
+    if len(args) == 1:
+      tree_url = args[0]
+    elif len(args) == 2:
+      tree_url, local_path = args
+    tree = repo.get_tree(tree_url)
 
   # Checkout the repository.
-  repo = Repo.find_from_cwd()
-  tree = repo.get_tree(tree_url)
-  checkout(repo, tree)
+  checkout(repo, tree, is_root_checkout)
 
   # Create the requested link.
   if local_path is not None:
@@ -67,7 +84,7 @@ def exec(*args):
         continue
       recursive_processed.add(tree_dep)
       try:
-        checkout(repo, tree_dep)
+        checkout(repo, tree_dep, is_root_checkout)
       except UserError as e:
         recursive_errored.add(tree_dep)
         all_exceptions.append(e)
