@@ -74,6 +74,19 @@ class Repo:
     print("Found tree for cwd:", tree)
     return tree
 
+  def tree_from_alias(self, alias):
+    """Gets a tree with an alias."""
+    tree_id = self.config.trees.aliases.get(alias)
+    if tree_id is None:
+      return None
+    tree_info = self.config.trees.tree_dicts.get(tree_id)
+    if tree_info is None:
+      return None
+    return self.get_tree(remote_url=tree_info["url"],
+                         working_tree=tree_info["working_tree"],
+                         remote_type=tree_info["t"],
+                         create=False)
+
   def get_tree(self,
                remote_url: str,
                working_tree=DEFAULT_WORKING_TREE,
@@ -320,7 +333,7 @@ class GitTreeRef(BaseTreeRef):
     if other_repo_path:
       other_repo = Repo.find_existing(other_repo_path)
       if other_repo:
-        other_tree = other_repo.get_tree(self.url)
+        other_tree = other_repo.get_tree(self.url, create=False)
         if other_tree:
           if trees_config.reference_repo:
             args.extend(["--reference-if-able", other_tree.path_in_repo])
@@ -452,6 +465,25 @@ class JsonDepProvider(BaseDepProvider):
         print("** ERROR INITIALIZING DEPENDENCY (skipped):", dep_record.url)
         print(e.message)
     return trees
+
+  def lookup_versions(self):
+    """Looks up requested versions for dependent trees.
+
+    Returns:
+      Sequence of (dep_tree, version).
+    """
+    dep_records = DepRecord.read_from_file(self._deps_file)
+    results = []
+    for dep_record in dep_records:
+      try:
+        results.append(
+            (self._repo.get_tree(dep_record.url,
+                                 working_tree=DEFAULT_WORKING_TREE,
+                                 remote_type="git"), dep_record.version))
+      except UserError as e:
+        print("** ERROR INITIALIZING DEPENDENCY (skipped):", dep_record.url)
+        print(e.message)
+    return results
 
 
 class SubmoduleDepProvider(BaseDepProvider):
