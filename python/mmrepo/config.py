@@ -61,8 +61,24 @@ class RepoTreesConfig:
     write_json_file(self._config_file, self._contents)
 
   @property
+  def reference_repo(self):
+    return self._contents.get("reference_repo")
+
+  @reference_repo.setter
+  def reference_repo(self, reference_repo):
+    self._contents["reference_repo"] = reference_repo
+
+  @property
+  def shared_repo(self):
+    return self._contents.get("shared_repo")
+
+  @shared_repo.setter
+  def shared_repo(self, shared_repo):
+    self._contents["shared_repo"] = shared_repo
+
+  @property
   def tree_dicts(self):
-    if not "trees" in self._contents:
+    if "trees" not in self._contents:
       self._contents["trees"] = {}
     td = self._contents["trees"]
     assert isinstance(td, dict)
@@ -70,7 +86,7 @@ class RepoTreesConfig:
 
   @property
   def aliases(self):
-    if not "aliases" in self._contents:
+    if "aliases" not in self._contents:
       self._contents["aliases"] = {}
     aliases = self._contents["aliases"]
     assert isinstance(aliases, dict)

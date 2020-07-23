@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Git helpers."""
 
 import collections
@@ -50,11 +49,12 @@ class GitExecutor:
                         capture_output=True,
                         silent=True).strip().decode("UTF-8")
 
-  def clone(self, repository, directory):
+  def clone(self, repository, directory, clone_args=()):
     """Clones the given repository into a directory."""
     if os.path.exists(directory):
       raise GitError("Cannot clone into {} (directory entry exists)", directory)
-    return self.execute(["git", "clone", repository, directory],
+    return self.execute(["git", "clone", repository, directory] +
+                        list(clone_args),
                         cwd=os.getcwd())
 
   def skip_worktree(self, repository, path):

@@ -77,7 +77,8 @@ class Repo:
   def get_tree(self,
                remote_url: str,
                working_tree=DEFAULT_WORKING_TREE,
-               remote_type="git") -> "GitTreeRef":
+               remote_type="git",
+               create=True) -> "GitTreeRef":
     assert remote_type == "git"
     assert working_tree == "defaultwt"
     prototype = GitTreeRef(self, url_spec=remote_url, working_tree=working_tree)
@@ -85,6 +86,8 @@ class Repo:
     tree_id = prototype.tree_id
     existing_dict = self._config.trees.get_tree_by_id(tree_id)
     if existing_dict is None:
+      if not create:
+        return None
       print("Added new tree {}".format(tree_id))
       self._config.trees.add_alias(prototype.default_local_path, tree_id)
       prototype.save()
@@ -113,6 +116,15 @@ class Repo:
     self._config.trees.add_alias(self.path, tree_id)
     new_tree.save()
     return new_tree
+
+  @staticmethod
+  def find_existing(existing_path):
+    mmrepo_dir = os.path.join(existing_path, MMREPO_DIR)
+    universe_dir = os.path.join(mmrepo_dir, UNIVERSE_DIR)
+    if os.path.isdir(mmrepo_dir) and os.path.isdir(universe_dir):
+      return Repo(existing_path)
+    else:
+      return None
 
   @staticmethod
   def find_from_cwd(from_cwd: Optional[str] = None):
@@ -298,6 +310,24 @@ class GitTreeRef(BaseTreeRef):
     if json_deps_provider:
       self._deps.append(json_deps_provider)
 
+  @property
+  def clone_args(self):
+    trees_config = self.repo.config.trees
+    args = []
+
+    # Reference or shared.
+    other_repo_path = trees_config.reference_repo or trees_config.shared_repo
+    if other_repo_path:
+      other_repo = Repo.find_existing(other_repo_path)
+      if other_repo:
+        other_tree = other_repo.get_tree(self.url)
+        if other_tree:
+          if trees_config.reference_repo:
+            args.extend(["--reference-if-able", other_tree.path_in_repo])
+          elif trees_config.shared_repo:
+            args.extend(["--shared", other_tree.path_in_repo])
+    return args
+
   def __repr__(self):
     return "GitTree(url={}, working_tree={})".format(self._origin,
                                                      self._working_tree)
@@ -306,7 +336,9 @@ class GitTreeRef(BaseTreeRef):
     path = self.path_in_repo
     if not self.is_root_tree:
       if not self.repo.git.is_git_repository(path):
-        self.repo.git.clone(self._origin.git_origin, path)
+        self.repo.git.clone(self._origin.git_origin,
+                            path,
+                            clone_args=self.clone_args)
         self._deps = None
       else:
         print("Skipping clone of {} (already exists)".format(self._origin))
