@@ -23,41 +23,71 @@ def create_argument_parser():
       prog="focus",
       description="Focuses all versions in a cone of trees",
       add_help=False)
-  parser.add_argument(
-      "alias",
-      nargs="?",
-      help="Alias of tree to focus (defaults to containing tree of the pwd)",
-      default=None)
+  parser.add_argument("--no-fetch",
+                      dest="no_fetch",
+                      action="store_true",
+                      help="Do not fetch prior to checking out")
+  parser.add_argument("specs", nargs="*", help="Version specs to apply")
   return parser
 
 
 HELP_MESSAGE = create_argument_parser().format_help() + """
 
-This updates the cone of dependencies to the most authoritative versions based
-on proximity to this root.
+Focus dependent trees based on a sequence of version specs. Each version
+specs is one of the following forms:
+  alias
+  alias=refspec
+
+Terms:
+  'alias' is a tree alias (typically the last path component of a git URL)
+  'refspec' is anything legal to pass to a git checkout command.
+
+If a refspec is not specified, it defaults to "origin/HEAD".
+
+When processing each item in the list, the referenced tree will checkout the
+given refspec if the tree has not yet been encountered. Then all dependencies
+of the tree are added to the list of version updates. In this way, versions
+are set in a first-come fashion and proceed depthwise. Specific, deep versions
+can be pinned by listing or encountering them first in the graph of deps.
 """
+
+
+def parse_spec(spec: str):
+  try:
+    eq_index = spec.index("=")
+  except ValueError:
+    return spec, "origin/HEAD"
+  else:
+    return spec.split("=", maxsplit=1)
 
 
 def exec(*args):
   args = create_argument_parser().parse_args(args)
   repo = Repo.find_from_cwd()
-  if args.alias:
-    tree = repo.tree_from_alias(args.alias)
-    if not tree:
-      raise UserError("Tree with alias '{}' not found", args.alias)
+
+  # Prime the worklist.
+  pending_tree_specs = list()
+  if not args.specs:
+    pending_tree_specs.append((repo.tree_from_cwd(), "origin/HEAD"))
   else:
-    tree = repo.tree_from_cwd()
+    for spec in args.specs:
+      alias, ref = parse_spec(spec)
+      pending_tree_specs.append((repo.tree_from_alias(alias), ref))
 
-  # TODO: This should traverse the graph.
-  dep_providers = tree.dep_providers
-  tree_versions = {}
-  for dep_provider in dep_providers:
-    for dep_tree, version in dep_provider.lookup_versions():
-      if dep_tree in tree_versions:
-        print("Skipping existing tree version {} = {}".format(
-            dep_tree, version))
-      tree_versions[dep_tree] = version
+  # Process the worklist.
+  processed_trees = set()
+  while pending_tree_specs:
+    current_tree_specs = list(pending_tree_specs)
+    pending_tree_specs.clear()
+    for tree, spec in current_tree_specs:
+      if tree in processed_trees:
+        continue
+      processed_trees.add(tree)
+      # Update this tree.
+      print(":: Update {} to {}".format(tree, spec))
+      tree.update_version(spec, fetch=not args.no_fetch)
 
-  for dep_tree, version in tree_versions.items():
-    print("Updating tree {} to {}".format(dep_tree, version))
-    dep_tree.update_version(version)
+      # Add deps to worklist.
+      for dep_provider in tree.dep_providers:
+        for dep_tree, dep_version in dep_provider.lookup_versions():
+          pending_tree_specs.append((dep_tree, dep_version))

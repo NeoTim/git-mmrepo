@@ -87,6 +87,16 @@ class Repo:
                          remote_type=tree_info["t"],
                          create=False)
 
+  def all_trees(self):
+    """Yields all trees known by the repository."""
+    for tree_info in self.config.trees.tree_dicts.values():
+
+      tree = self.get_tree(remote_url=tree_info["url"],
+                         working_tree=tree_info["working_tree"],
+                         remote_type=tree_info["t"],
+                         create=False)
+      if tree is not None: yield tree
+
   def get_tree(self,
                remote_url: str,
                working_tree=DEFAULT_WORKING_TREE,
@@ -258,7 +268,8 @@ class GitTreeRef(BaseTreeRef):
     return "git/{}".format(self._origin.git_origin)
 
   def validate(self):
-    self._origin.universe_path  # Validate
+    if not self.is_root_tree:
+      self._origin.universe_path  # Validate
 
   def __eq__(self, other):
     if self is other:
@@ -388,10 +399,10 @@ class GitTreeRef(BaseTreeRef):
                                  self.repo.path,
                                  target_is_directory=True)
 
-  def update_version(self, version):
+  def update_version(self, version, *, fetch=True):
     """Updates the version for this tree."""
     self.repo.git.checkout_version(repository=self.path_in_repo,
-                                   version=version)
+                                   version=version, fetch=fetch)
 
 
 class BaseDepProvider:

@@ -24,7 +24,7 @@ from mmrepo.common import *
 
 SubmoduleInfo = collections.namedtuple("SubmoduleInfo", "url,path")
 
-PRINT_ALL = True
+PRINT_ALL = False
 
 __all__ = [
     "GitExecutor",
@@ -115,13 +115,22 @@ class GitExecutor:
       results.append((path, version))
     return results
 
-  def checkout_version(self, repository, version):
+  def checkout_version(self, repository, version, *, fetch=True):
     """Checks out a version from a repository.
 
     Fails if the repository is dirty.
     """
-    self.execute(["git", "fetch"], cwd=repository)
-    self.execute(["git", "checkout", version], cwd=repository)
+    if fetch:
+      self.execute(["git", "fetch"], cwd=repository)
+    self.execute(["git", "checkout", "--quiet", version], cwd=repository)
+
+  def show(self, repository, git_object, option_args=()):
+    """Executes a 'git show' command for an object, and arguments."""
+    args = ["git", "show"]
+    args.extend(list(option_args))
+    args.extend([git_object])
+    return self.execute(args, silent=True, cwd=repository,
+                        capture_output=True).strip().decode("UTF-8")
 
   def execute(self, args, cwd, capture_output=False, silent=False, **kwargs):
     """Executes a command.
