@@ -52,10 +52,10 @@ root git trees cannot exist recursively in dependencies.
 def exec(*args):
   args = create_argument_parser().parse_args(args)
   r = Repo.init()
-  print("Initialized new magical monorepo at {}".format(r.path))
+  print("Initialized magical monorepo at {}".format(r.path))
   if r.git.is_git_repository(r.path):
     root_tree = r.get_root_tree()
-    print("Created root repository", root_tree.tree_id)
+    print("Root repository", root_tree.tree_id)
 
   # Configure reference and shared repos.
   if args.reference or args.shared:

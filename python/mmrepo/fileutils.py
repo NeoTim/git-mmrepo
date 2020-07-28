@@ -48,3 +48,9 @@ def make_relative_link(src, dst, relative_to, target_is_directory=False):
   # And add the source.
   link_accum = link_accum.joinpath(src.relative_to(relative_to))
   os.symlink(link_accum, dst, target_is_directory=target_is_directory)
+
+
+def is_same_path(path1, path2) -> bool:
+  path1 = Path(path1).resolve()
+  path2 = Path(path2).resolve()
+  return path1 == path2

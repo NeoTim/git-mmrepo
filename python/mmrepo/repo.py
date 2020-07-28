@@ -170,7 +170,7 @@ class Repo:
     raise UserError("Could not find initialized mmrepo under {}", from_cwd)
 
   @staticmethod
-  def init(from_cwd: Optional[str] = None):
+  def init(from_cwd: Optional[str] = None, exist_ok: bool = True):
     if from_cwd is None:
       from_cwd = os.getcwd()
     # Deny existing.
@@ -179,8 +179,12 @@ class Repo:
     except UserError:
       pass
     else:
-      raise UserError("Repository cannot be created under existing {}",
-                      existing.path)
+      # Allow it if it is exactly for this directory.
+      if not exist_ok or not fileutils.is_same_path(from_cwd, existing.path):
+        raise UserError("Repository cannot be created under existing {}",
+                        existing.path)
+      else:
+        return existing
     # Create.
     repo_path = os.path.join(from_cwd, MMREPO_DIR)
     _make_dir(repo_path, exist_ok=True)
