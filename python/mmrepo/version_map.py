@@ -103,7 +103,7 @@ class VersionComponent(
         tree = repo.tree_from_alias(tree_spec)
       if tree is None:
         raise UserError("Tree '{}' is not known in the repository",
-                        tree_specs)
+                        tree_spec)
 
     # If no resolved_commit, try to resolve it.
     resolved_version = self.resolved_version
