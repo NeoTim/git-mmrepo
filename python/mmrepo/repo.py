@@ -26,6 +26,7 @@ UNIVERSE_DIR = "universe"
 DEFAULT_WORKING_TREE = "defaultwt"
 
 __all__ = [
+    "BaseTreeRef",
     "GitTreeRef",
     "Repo",
 ]
@@ -79,6 +80,9 @@ class Repo:
     tree_id = self.config.trees.aliases.get(alias)
     if tree_id is None:
       return None
+    return self.tree_from_id(tree_id)
+
+  def tree_from_id(self, tree_id):
     tree_info = self.config.trees.tree_dicts.get(tree_id)
     if tree_info is None:
       return None
@@ -92,10 +96,11 @@ class Repo:
     for tree_info in self.config.trees.tree_dicts.values():
 
       tree = self.get_tree(remote_url=tree_info["url"],
-                         working_tree=tree_info["working_tree"],
-                         remote_type=tree_info["t"],
-                         create=False)
-      if tree is not None: yield tree
+                           working_tree=tree_info["working_tree"],
+                           remote_type=tree_info["t"],
+                           create=False)
+      if tree is not None:
+        yield tree
 
   def get_tree(self,
                remote_url: str,
@@ -402,7 +407,8 @@ class GitTreeRef(BaseTreeRef):
   def update_version(self, version, *, fetch=True):
     """Updates the version for this tree."""
     self.repo.git.checkout_version(repository=self.path_in_repo,
-                                   version=version, fetch=fetch)
+                                   version=version,
+                                   fetch=fetch)
 
 
 class BaseDepProvider:

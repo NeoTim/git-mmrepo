@@ -12,16 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import version_map
-
-HELP_MESSAGE = version_map.create_argument_parser().format_help() + """
-
-Alias for:
-  version_map --set ...
-"""
-
-
-def exec(*args):
-  args = list(args)
-  args.append("--set")
-  version_map.exec(*args)

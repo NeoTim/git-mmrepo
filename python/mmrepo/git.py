@@ -132,6 +132,17 @@ class GitExecutor:
     return self.execute(args, silent=True, cwd=repository,
                         capture_output=True).strip().decode("UTF-8")
 
+  def ls_remote(self, remote_url):
+    """Executes ls-remote returning a dict of ref -> commit."""
+    output_lines = self.execute(
+        ["git", "ls-remote", remote_url], cwd=os.getcwd(),
+        capture_output=True, silent=True).strip().decode("UTF-8").splitlines()
+    refs = dict()
+    for output_line in output_lines:
+      commit, ref = output_line.split("\t", maxsplit=1)
+      refs[ref] = commit
+    return refs
+
   def execute(self, args, cwd, capture_output=False, silent=False, **kwargs):
     """Executes a command.
     Args:

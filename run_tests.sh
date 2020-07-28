@@ -17,6 +17,7 @@
 
 TEST_MODULES="
   mmrepo.git
+  mmrepo.version_map
 "
 
 # Make sure we are using python3.
