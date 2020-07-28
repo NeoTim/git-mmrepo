@@ -56,6 +56,7 @@ def exec(*args):
   if r.git.is_git_repository(r.path):
     root_tree = r.get_root_tree()
     print("Root repository", root_tree.tree_id)
+    root_tree.checkout()
 
   # Configure reference and shared repos.
   if args.reference or args.shared:
