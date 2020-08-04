@@ -354,6 +354,15 @@ class GitTreeRef(BaseTreeRef):
     if json_deps_provider:
       self._deps.append(json_deps_provider)
 
+  def ensure_dep_providers_initialized(self):
+    """Initializes dep providers.
+
+    This should be done after any working tree disruptions to ensure links
+    are current.
+    """
+    for dep_provider in self.dep_providers:
+      dep_provider.initialize()
+
   @property
   def clone_args(self):
     trees_config = self.repo.config.trees
@@ -436,9 +445,6 @@ class GitTreeRef(BaseTreeRef):
         raise UserError("Cannot link tree: {} (path exists)", target_path)
       existing_target = os.readlink(target_path)
       if existing_target == source_path:
-        print(
-            "Not creating link because the path '{}' is already linked correctly"
-            .format(target_path), " ({})".format(target_path))
         return
       raise UserError("Cannot link tree: {} (path is already linked to {})",
                       target_path, source_path)
@@ -454,6 +460,7 @@ class GitTreeRef(BaseTreeRef):
     self.repo.git.checkout_version(repository=self.path_in_repo,
                                    version=version,
                                    fetch=fetch)
+    self.ensure_dep_providers_initialized()
 
 
 class BaseDepProvider:
