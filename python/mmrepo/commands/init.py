@@ -14,6 +14,7 @@
 """Initialize a new mmrepo."""
 
 import argparse
+import os
 
 from mmrepo.repo import *
 
@@ -25,15 +26,14 @@ def create_argument_parser():
       add_help=False)
   # Reference and shared.
   group = parser.add_mutually_exclusive_group()
+  group.add_argument("--local-mirror",
+                     help="Use (or create) a bare local mirror for cloning",
+                     default=None)
   group.add_argument(
       "--reference",
       help="Clone from reference git trees under this repository "
       "(via git clone --reference)",
       default=None)
-  group.add_argument("--shared",
-                     help="Clone from shared git trees under this repository "
-                     "(via git clone --shared)",
-                     default=None)
   return parser
 
 
@@ -52,17 +52,30 @@ root git trees cannot exist recursively in dependencies.
 def exec(*args):
   args = create_argument_parser().parse_args(args)
   r = Repo.init()
+
+  # Initialize local mirror mode
+  if args.local_mirror:
+    local_mirror_path = args.local_mirror
+    print("Using local mirror at", local_mirror_path)
+    os.makedirs(local_mirror_path, exist_ok=True)
+    # Configure the mirror.
+    mirror_r = Repo.init(from_cwd=local_mirror_path, exact_path=True)
+    mirror_trees_config = mirror_r.config.trees
+    mirror_trees_config.bare_clone = True
+    mirror_trees_config.save()
+    # Configure this repo.
+    trees_config = r.config.trees
+    trees_config.local_mirror_path = local_mirror_path
+
+  # Configure reference and shared repos.
+  if args.reference:
+    trees_config = r.config.trees
+    trees_config.reference_repo = args.reference
+    trees_config.save()
+
+  # Initialize and check out.
   print("Initialized magical monorepo at {}".format(r.path))
   if r.git.is_git_repository(r.path):
     root_tree = r.get_root_tree()
     print("Root repository", root_tree.tree_id)
     root_tree.checkout()
-
-  # Configure reference and shared repos.
-  if args.reference or args.shared:
-    trees_config = r.config.trees
-    if args.reference:
-      trees_config.reference_repo = args.reference
-    if args.shared:
-      trees_config.shared_repo = args.shared
-    trees_config.save()

@@ -42,6 +42,13 @@ class Repo:
     self._config = RepoConfig(self.mmrepo_dir)
 
   @property
+  def local_mirror_repo(self) -> Optional["Repo"]:
+    local_mirror_path = self._config.trees.local_mirror_path
+    if local_mirror_path is None:
+      return None
+    return Repo(local_mirror_path)
+
+  @property
   def config(self) -> RepoConfig:
     return self._config
 
@@ -155,7 +162,7 @@ class Repo:
       return None
 
   @staticmethod
-  def find_from_cwd(from_cwd: Optional[str] = None):
+  def find_from_cwd(from_cwd: Optional[str] = None, exact_path: bool = False):
     if from_cwd is None:
       from_cwd = os.getcwd()
     prev_cwd = None
@@ -167,15 +174,19 @@ class Repo:
         return Repo(cwd)
       prev_cwd = cwd
       cwd = os.path.dirname(cwd)
+      if exact_path:
+        break
     raise UserError("Could not find initialized mmrepo under {}", from_cwd)
 
   @staticmethod
-  def init(from_cwd: Optional[str] = None, exist_ok: bool = True):
+  def init(from_cwd: Optional[str] = None,
+           exist_ok: bool = True,
+           exact_path: bool = False):
     if from_cwd is None:
       from_cwd = os.getcwd()
     # Deny existing.
     try:
-      existing = Repo.find_from_cwd(from_cwd=from_cwd)
+      existing = Repo.find_from_cwd(from_cwd=from_cwd, exact_path=exact_path)
     except UserError:
       pass
     else:
@@ -348,8 +359,12 @@ class GitTreeRef(BaseTreeRef):
     trees_config = self.repo.config.trees
     args = []
 
-    # Reference or shared.
-    other_repo_path = trees_config.reference_repo or trees_config.shared_repo
+    # Do a bare clone by skipping checkout.
+    if trees_config.bare_clone:
+      args.append("--no-checkout")
+
+    # Reference.
+    other_repo_path = trees_config.reference_repo
     if other_repo_path:
       other_repo = Repo.find_existing(other_repo_path)
       if other_repo:
@@ -357,9 +372,37 @@ class GitTreeRef(BaseTreeRef):
         if other_tree:
           if trees_config.reference_repo:
             args.extend(["--reference-if-able", other_tree.path_in_repo])
-          elif trees_config.shared_repo:
-            args.extend(["--shared", other_tree.path_in_repo])
     return args
+
+  def clone(self):
+    """Clones the repository to this path."""
+    local_mirror = self.repo.local_mirror_repo
+    # Resolve any local mirror.
+    mirror_tree = None
+    url = self.url
+    source_path = url
+    clone_args = self.clone_args
+    if local_mirror:
+      mirror_tree = local_mirror.get_tree(remote_url=url,
+                                          working_tree=DEFAULT_WORKING_TREE,
+                                          remote_type="git")
+      source_path = mirror_tree.path_in_repo
+      clone_args.append("--shared")
+      if not self.repo.git.is_git_repository(mirror_tree.path_in_repo):
+        print("Mirror tree does not exist. Cloning", url)
+        mirror_tree.clone()
+      else:
+        mirror_tree.fetch()
+
+    # Clone from either the upstream source or the local mirror.
+    self.repo.git.clone(source_path, self.path_in_repo, clone_args=clone_args)
+
+    # If using a local mirror, rewrite the remotes.
+    self.repo.git.remote_set_url(self.path_in_repo, "origin", url)
+
+  def fetch(self):
+    """Fetches from remotes."""
+    self.repo.git.fetch(self.path_in_repo)
 
   def __repr__(self):
     return "GitTree(url={}, working_tree={})".format(self._origin,
@@ -369,9 +412,7 @@ class GitTreeRef(BaseTreeRef):
     path = self.path_in_repo
     if not self.is_root_tree:
       if not self.repo.git.is_git_repository(path):
-        self.repo.git.clone(self._origin.git_origin,
-                            path,
-                            clone_args=self.clone_args)
+        self.clone()
         self._deps = None
       else:
         print("Skipping clone of {} (already exists)".format(self._origin))

@@ -69,12 +69,20 @@ class RepoTreesConfig:
     self._contents["reference_repo"] = reference_repo
 
   @property
-  def shared_repo(self):
-    return self._contents.get("shared_repo")
+  def bare_clone(self):
+    return self._contents.get("bare_clone") or False
 
-  @shared_repo.setter
-  def shared_repo(self, shared_repo):
-    self._contents["shared_repo"] = shared_repo
+  @bare_clone.setter
+  def bare_clone(self, bare_clone):
+    self._contents["bare_clone"] = bool(bare_clone)
+
+  @property
+  def local_mirror_path(self):
+    return self._contents.get("local_mirror_path")
+
+  @local_mirror_path.setter
+  def local_mirror_path(self, local_mirror_path):
+    self._contents["local_mirror_path"] = local_mirror_path
 
   @property
   def tree_dicts(self):

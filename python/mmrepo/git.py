@@ -57,6 +57,14 @@ class GitExecutor:
                         list(clone_args),
                         cwd=os.getcwd())
 
+  def fetch(self, repository):
+    """Fetches from a repository."""
+    self.execute(["git", "fetch"], cwd=repository)
+
+  def remote_set_url(self, repository, remote, url):
+    """Sets the URL of a remote."""
+    self.execute(["git", "remote", "set-url", remote, url], cwd=repository)
+
   def skip_worktree(self, repository, path):
     """Marks a path in the repository with --skip-worktree."""
     self.execute(["git", "update-index", "--skip-worktree", path],
